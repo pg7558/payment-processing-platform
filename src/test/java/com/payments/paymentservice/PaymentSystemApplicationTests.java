@@ -1,4 +1,4 @@
-package com.wallet.payment_system;
+package com.payments.paymentservice;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

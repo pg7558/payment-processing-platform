@@ -1,4 +1,4 @@
-package com.wallet.payment_system.entity;
+package com.payments.paymentservice.entity;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
