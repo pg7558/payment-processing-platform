@@ -1,6 +1,8 @@
 package com.payments.paymentservice.controller;
 
+import com.payments.paymentservice.dto.AddMoneyRequest;
 import com.payments.paymentservice.dto.CreateWalletRequest;
+import com.payments.paymentservice.dto.TransferRequest;
 import com.payments.paymentservice.dto.WalletResponse;
 import com.payments.paymentservice.service.WalletService;
 import lombok.RequiredArgsConstructor;
@@ -21,5 +23,17 @@ public class WalletController {
     @GetMapping("/{userId}")
     public ResponseEntity<WalletResponse> getBalance(@PathVariable Long userId){
         return ResponseEntity.ok(walletService.getBalance(userId));
+    }
+
+    @PostMapping("transfer")
+    public ResponseEntity<String> transfer(@RequestBody TransferRequest request){
+        walletService.transfer(request);
+        return ResponseEntity.ok("Transfer Successful");
+    }
+
+    @PostMapping("/add-money")
+    public ResponseEntity<String> addMoney(@RequestBody AddMoneyRequest request){
+        walletService.addMoney(request);
+        return ResponseEntity.ok("Money added successfully");
     }
 }
