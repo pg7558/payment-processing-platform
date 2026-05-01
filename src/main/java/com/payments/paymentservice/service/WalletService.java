@@ -1,22 +1,25 @@
 package com.payments.paymentservice.service;
 
-import com.payments.paymentservice.dto.AddMoneyRequest;
-import com.payments.paymentservice.dto.CreateWalletRequest;
-import com.payments.paymentservice.dto.TransferRequest;
-import com.payments.paymentservice.dto.WalletResponse;
+import com.payments.paymentservice.dto.*;
+import com.payments.paymentservice.entity.Transaction;
 import com.payments.paymentservice.entity.Wallet;
 import com.payments.paymentservice.exception.BadRequestException;
 import com.payments.paymentservice.exception.NotFoundException;
+import com.payments.paymentservice.repository.TransactionRepository;
 import com.payments.paymentservice.repository.WalletRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class WalletService {
 
     private final WalletRepository walletRepository;
+    private final TransactionRepository transactionRepository;
 
     public WalletResponse createWallet(CreateWalletRequest request){
         walletRepository.findUserById(request.getUserId())
@@ -53,28 +56,60 @@ public class WalletService {
 
     @Transactional
     public void transfer(TransferRequest request) {
-        if (request.getAmount() <= 0) {
-            throw new BadRequestException("Amount must be greater than 0");
+
+        Transaction txn = new Transaction();
+        txn.setFromUser(request.getFromUser());
+        txn.setToUser(request.getToUser());
+        txn.setAmount(request.getAmount());
+        txn.setCreatedAt(LocalDateTime.now());
+
+        try {
+            if (request.getAmount() <= 0) {
+                throw new BadRequestException("Amount must be greater than 0");
+            }
+
+            if (request.getFromUser().equals(request.getToUser())) {
+                throw new BadRequestException("Cannot transfer to same user");
+            }
+
+            Wallet fromWallet = walletRepository.findUserById(request.getFromUser())
+                    .orElseThrow(() -> new NotFoundException("Sender wallet not found"));
+
+            Wallet toWallet = walletRepository.findUserById(request.getToUser())
+                    .orElseThrow(() -> new NotFoundException("Receiver wallet not found"));
+
+            if (fromWallet.getBalance() < request.getAmount()) {
+                throw new BadRequestException("Insufficient balance");
+            }
+
+            fromWallet.setBalance(fromWallet.getBalance() - request.getAmount());
+            toWallet.setBalance(toWallet.getBalance() + request.getAmount());
+
+            walletRepository.save(fromWallet);
+            walletRepository.save(toWallet);
+
+            txn.setStatus("SUCCESS");
+        } catch(Exception ex){
+            txn.setStatus("FAILED");
+            throw ex;
+        } finally{
+            transactionRepository.save(txn);
         }
+    }
 
-        if (request.getFromUser().equals(request.getToUser())) {
-            throw new BadRequestException("Cannot transfer to same user");
-        }
+    public List<TransactionResponse> getTransactions(Long userId){
 
-        Wallet fromWallet = walletRepository.findUserById(request.getFromUser())
-                .orElseThrow(() -> new NotFoundException("Sender wallet not found"));
+        List<Transaction> txns =
+                transactionRepository.findByFromUserOrToUser(userId, userId);
 
-        Wallet toWallet = walletRepository.findUserById(request.getToUser())
-                .orElseThrow(() -> new NotFoundException("Receiver wallet not found"));
-
-        if (fromWallet.getBalance() < request.getAmount()) {
-            throw new BadRequestException("Insufficient balance");
-        }
-
-        fromWallet.setBalance(fromWallet.getBalance() - request.getAmount());
-        toWallet.setBalance(toWallet.getBalance() + request.getAmount());
-
-        walletRepository.save(fromWallet);
-        walletRepository.save(toWallet);
+        return txns.stream()
+                .map(t-> new TransactionResponse(
+                        t.getFromUser(),
+                        t.getToUser(),
+                        t.getAmount(),
+                        t.getStatus(),
+                        t.getCreatedAt()
+                ))
+                .toList();
     }
 }

@@ -1,13 +1,12 @@
 package com.payments.paymentservice.controller;
 
-import com.payments.paymentservice.dto.AddMoneyRequest;
-import com.payments.paymentservice.dto.CreateWalletRequest;
-import com.payments.paymentservice.dto.TransferRequest;
-import com.payments.paymentservice.dto.WalletResponse;
+import com.payments.paymentservice.dto.*;
 import com.payments.paymentservice.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -35,5 +34,10 @@ public class WalletController {
     public ResponseEntity<String> addMoney(@RequestBody AddMoneyRequest request){
         walletService.addMoney(request);
         return ResponseEntity.ok("Money added successfully");
+    }
+
+    @GetMapping("/transactions/{userId}")
+    public ResponseEntity<List<TransactionResponse>> getTransactions(@PathVariable Long userId){
+        return ResponseEntity.ok(walletService.getTransactions(userId));
     }
 }
