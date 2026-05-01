@@ -24,10 +24,9 @@ public class WalletController {
         return ResponseEntity.ok(walletService.getBalance(userId));
     }
 
-    @PostMapping("transfer")
+    @PostMapping("/transfer")
     public ResponseEntity<String> transfer(@RequestBody TransferRequest request){
-        walletService.transfer(request);
-        return ResponseEntity.ok("Transfer Successful");
+        return ResponseEntity.ok(walletService.transfer(request));
     }
 
     @PostMapping("/add-money")

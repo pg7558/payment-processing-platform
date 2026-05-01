@@ -7,4 +7,6 @@ public class TransferRequest {
     private Long fromUser;
     private Long toUser;
     private Double amount;
+
+    private String idempotencyKey;
 }
