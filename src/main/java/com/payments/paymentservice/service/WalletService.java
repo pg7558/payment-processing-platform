@@ -22,6 +22,7 @@ public class WalletService {
 
     private final WalletRepository walletRepository;
     private final TransactionRepository transactionRepository;
+    private final TransactionService transactionService;
 
     public WalletResponse createWallet(CreateWalletRequest request){
         walletRepository.findUserById(request.getUserId())
@@ -75,41 +76,53 @@ public class WalletService {
         txn.setToUser(request.getToUser());
         txn.setAmount(request.getAmount());
         txn.setCreatedAt(LocalDateTime.now());
-        txn.setIdempotencyKey(request.getIdempotencyKey()); // ✅ FIX 1
-
-        if (request.getAmount() <= 0) {
-            throw new BadRequestException("Amount must be greater than 0");
-        }
-
-        if (request.getFromUser().equals(request.getToUser())) {
-            throw new BadRequestException("Cannot transfer to same user");
-        }
-
-        Wallet fromWallet = walletRepository.findUserById(request.getFromUser())
-                .orElseThrow(() -> new NotFoundException("Sender wallet not found"));
-
-        Wallet toWallet = walletRepository.findUserById(request.getToUser())
-                .orElseThrow(() -> new NotFoundException("Receiver wallet not found"));
-
-        if (fromWallet.getBalance() < request.getAmount()) {
-            throw new BadRequestException("Insufficient balance");
-        }
-
-        fromWallet.setBalance(fromWallet.getBalance() - request.getAmount());
-        toWallet.setBalance(toWallet.getBalance() + request.getAmount());
-
-        walletRepository.save(fromWallet);
-        walletRepository.save(toWallet);
-
-        txn.setStatus("SUCCESS");
+        txn.setIdempotencyKey(request.getIdempotencyKey());
 
         try {
-            transactionRepository.save(txn); // ✅ save ONLY here
-        } catch (DataIntegrityViolationException ex) {
-            return "Duplicate request prevented at DB level";
-        }
 
-        return "Transaction successful";
+            if (request.getAmount() <= 0) {
+                throw new BadRequestException("Amount must be greater than 0");
+            }
+
+            if (request.getFromUser().equals(request.getToUser())) {
+                throw new BadRequestException("Cannot transfer to same user");
+            }
+
+            Wallet fromWallet = walletRepository.findUserById(request.getFromUser())
+                    .orElseThrow(() -> new NotFoundException("Sender wallet not found"));
+
+            Wallet toWallet = walletRepository.findUserById(request.getToUser())
+                    .orElseThrow(() -> new NotFoundException("Receiver wallet not found"));
+
+            if (fromWallet.getBalance() < request.getAmount()) {
+                throw new BadRequestException("Insufficient balance");
+            }
+
+            // Debit & Credit
+            fromWallet.setBalance(fromWallet.getBalance() - request.getAmount());
+            toWallet.setBalance(toWallet.getBalance() + request.getAmount());
+
+            walletRepository.save(fromWallet);
+            walletRepository.save(toWallet);
+
+            txn.setStatus("SUCCESS");
+
+            return "Transfer successful";
+
+        } catch (Exception ex) {
+
+            txn.setStatus("FAILED");
+
+            transactionService.saveTransaction(txn);
+
+            throw ex;
+
+        } finally {
+
+            if (txn.getStatus() != null && txn.getStatus().equals("SUCCESS")) {
+                transactionService.saveTransaction(txn);
+            }
+        }
     }
 
     public List<TransactionResponse> getTransactions(Long userId){
