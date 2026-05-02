@@ -7,10 +7,9 @@ import com.payments.paymentservice.exception.BadRequestException;
 import com.payments.paymentservice.exception.NotFoundException;
 import com.payments.paymentservice.repository.TransactionRepository;
 import com.payments.paymentservice.repository.WalletRepository;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,36 +23,42 @@ public class WalletService {
     private final TransactionRepository transactionRepository;
     private final TransactionService transactionService;
 
-    public WalletResponse createWallet(CreateWalletRequest request){
-        walletRepository.findUserById(request.getUserId())
-                .ifPresent(w->{
+    public WalletResponse createWallet(CreateWalletRequest request) {
+
+        walletRepository.findByUserId(request.getUserId())
+                .ifPresent(w -> {
                     throw new BadRequestException("Wallet already exists");
                 });
+
         Wallet wallet = new Wallet();
         wallet.setUserId(request.getUserId());
         wallet.setBalance(0.0);
+
         walletRepository.save(wallet);
 
         return new WalletResponse(wallet.getUserId(), wallet.getBalance());
     }
 
-    public WalletResponse getBalance(Long userId){
-        Wallet wallet = walletRepository.findUserById(userId)
-                .orElseThrow(()->new RuntimeException("Wallet not found"));
+    public WalletResponse getBalance(Long userId) {
 
-        return new WalletResponse(wallet.getUserId(),wallet.getBalance());
+        Wallet wallet = walletRepository.findByUserId(userId)
+                .orElseThrow(() -> new NotFoundException("Wallet not found"));
+
+        return new WalletResponse(wallet.getUserId(), wallet.getBalance());
     }
 
     @Transactional
-    public void addMoney(AddMoneyRequest request){
-        if(request.getAmount()<=0){
+    public void addMoney(AddMoneyRequest request) {
+
+        if (request.getAmount() <= 0) {
             throw new BadRequestException("Amount must be greater than 0");
         }
 
-        Wallet wallet = walletRepository.findUserById(request.getUserId())
-                .orElseThrow(()-> new NotFoundException("Wallet not found"));
+        Wallet wallet = walletRepository.findByUserIdForUpdate(request.getUserId())
+                .orElseThrow(() -> new NotFoundException("Wallet not found"));
 
-        wallet.setBalance(wallet.getBalance()+request.getAmount());
+        wallet.setBalance(wallet.getBalance() + request.getAmount());
+
         walletRepository.save(wallet);
     }
 
@@ -61,14 +66,14 @@ public class WalletService {
     public String transfer(TransferRequest request) {
 
         if (request.getIdempotencyKey() == null) {
-            throw new BadRequestException("Idempotency Key is required");
+            throw new BadRequestException("Idempotency key is required");
         }
 
         Optional<Transaction> existingTxn =
                 transactionRepository.findByIdempotencyKey(request.getIdempotencyKey());
 
         if (existingTxn.isPresent()) {
-            return "Duplicate request ignored. Previous Status: " + existingTxn.get().getStatus();
+            return "Duplicate request ignored. Previous status: " + existingTxn.get().getStatus();
         }
 
         Transaction txn = new Transaction();
@@ -88,11 +93,18 @@ public class WalletService {
                 throw new BadRequestException("Cannot transfer to same user");
             }
 
-            Wallet fromWallet = walletRepository.findUserById(request.getFromUser())
-                    .orElseThrow(() -> new NotFoundException("Sender wallet not found"));
+            // Lock in consistent order
+            Long first = Math.min(request.getFromUser(), request.getToUser());
+            Long second = Math.max(request.getFromUser(), request.getToUser());
 
-            Wallet toWallet = walletRepository.findUserById(request.getToUser())
-                    .orElseThrow(() -> new NotFoundException("Receiver wallet not found"));
+            Wallet firstWallet = walletRepository.findByUserIdForUpdate(first)
+                    .orElseThrow(() -> new NotFoundException("Wallet not found"));
+
+            Wallet secondWallet = walletRepository.findByUserIdForUpdate(second)
+                    .orElseThrow(() -> new NotFoundException("Wallet not found"));
+
+            Wallet fromWallet = first.equals(request.getFromUser()) ? firstWallet : secondWallet;
+            Wallet toWallet = first.equals(request.getFromUser()) ? secondWallet : firstWallet;
 
             if (fromWallet.getBalance() < request.getAmount()) {
                 throw new BadRequestException("Insufficient balance");
@@ -112,26 +124,25 @@ public class WalletService {
         } catch (Exception ex) {
 
             txn.setStatus("FAILED");
-
             transactionService.saveTransaction(txn);
 
             throw ex;
 
         } finally {
 
-            if (txn.getStatus() != null && txn.getStatus().equals("SUCCESS")) {
+            if ("SUCCESS".equals(txn.getStatus())) {
                 transactionService.saveTransaction(txn);
             }
         }
     }
 
-    public List<TransactionResponse> getTransactions(Long userId){
+    public List<TransactionResponse> getTransactions(Long userId) {
 
         List<Transaction> txns =
                 transactionRepository.findByFromUserOrToUser(userId, userId);
 
         return txns.stream()
-                .map(t-> new TransactionResponse(
+                .map(t -> new TransactionResponse(
                         t.getFromUser(),
                         t.getToUser(),
                         t.getAmount(),
