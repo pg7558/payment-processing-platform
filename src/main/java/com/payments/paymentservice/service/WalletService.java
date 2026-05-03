@@ -22,6 +22,7 @@ public class WalletService {
     private final WalletRepository walletRepository;
     private final TransactionRepository transactionRepository;
     private final TransactionService transactionService;
+    private final PaymentProducer paymentProducer;
 
     public WalletResponse createWallet(CreateWalletRequest request) {
 
@@ -118,6 +119,16 @@ public class WalletService {
             walletRepository.save(toWallet);
 
             txn.setStatus("SUCCESS");
+
+            paymentProducer.sendPayment(
+                    new PaymentEvent(
+                            request.getFromUser(),
+                            request.getToUser(),
+                            request.getAmount(),
+                            "SUCCESS",
+                            LocalDateTime.now()
+                    )
+            );
 
             return "Transfer successful";
 

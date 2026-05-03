@@ -39,6 +39,6 @@ public class WalletController {
     @GetMapping("/transactions/{userId}")
     public ResponseEntity<List<TransactionResponse>> getTransactions(@PathVariable Long userId) {
         return ResponseEntity.ok(walletService.getTransactions(userId));
-        
+
     }
 }
