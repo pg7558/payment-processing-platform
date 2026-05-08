@@ -8,6 +8,7 @@ import com.payments.paymentservice.exception.NotFoundException;
 import com.payments.paymentservice.repository.TransactionRepository;
 import com.payments.paymentservice.repository.WalletRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,6 +18,7 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class WalletService {
 
     private final WalletRepository walletRepository;
@@ -48,23 +50,29 @@ public class WalletService {
         return new WalletResponse(wallet.getUserId(), wallet.getBalance());
     }
 
-    @Transactional
+    @Transactional(timeout = 5)
     public void addMoney(AddMoneyRequest request) {
 
         if (request.getAmount() <= 0) {
             throw new BadRequestException("Amount must be greater than 0");
         }
 
-        Wallet wallet = walletRepository.findByUserIdForUpdate(request.getUserId())
+        Wallet wallet = walletRepository.findByUserId(request.getUserId())
                 .orElseThrow(() -> new NotFoundException("Wallet not found"));
 
         wallet.setBalance(wallet.getBalance() + request.getAmount());
 
         walletRepository.save(wallet);
+
+        log.info("Money added successfully for user {}", request.getUserId());
     }
 
-    @Transactional
+    @Transactional(timeout = 5)
     public String transfer(TransferRequest request) {
+
+        long start = System.currentTimeMillis();
+
+        log.info("Transfer started");
 
         if (request.getIdempotencyKey() == null) {
             throw new BadRequestException("Idempotency key is required");
@@ -74,7 +82,8 @@ public class WalletService {
                 transactionRepository.findByIdempotencyKey(request.getIdempotencyKey());
 
         if (existingTxn.isPresent()) {
-            return "Duplicate request ignored. Previous status: " + existingTxn.get().getStatus();
+            return "Duplicate request ignored. Previous status: "
+                    + existingTxn.get().getStatus();
         }
 
         Transaction txn = new Transaction();
@@ -94,7 +103,7 @@ public class WalletService {
                 throw new BadRequestException("Cannot transfer to same user");
             }
 
-            // Lock in consistent order
+            // Prevent deadlocks by locking in consistent order
             Long first = Math.min(request.getFromUser(), request.getToUser());
             Long second = Math.max(request.getFromUser(), request.getToUser());
 
@@ -104,22 +113,35 @@ public class WalletService {
             Wallet secondWallet = walletRepository.findByUserIdForUpdate(second)
                     .orElseThrow(() -> new NotFoundException("Wallet not found"));
 
-            Wallet fromWallet = first.equals(request.getFromUser()) ? firstWallet : secondWallet;
-            Wallet toWallet = first.equals(request.getFromUser()) ? secondWallet : firstWallet;
+            Wallet fromWallet =
+                    first.equals(request.getFromUser()) ? firstWallet : secondWallet;
+
+            Wallet toWallet =
+                    first.equals(request.getFromUser()) ? secondWallet : firstWallet;
 
             if (fromWallet.getBalance() < request.getAmount()) {
                 throw new BadRequestException("Insufficient balance");
             }
 
-            // Debit & Credit
-            fromWallet.setBalance(fromWallet.getBalance() - request.getAmount());
-            toWallet.setBalance(toWallet.getBalance() + request.getAmount());
+            // Debit sender
+            fromWallet.setBalance(
+                    fromWallet.getBalance() - request.getAmount()
+            );
+
+            // Credit receiver
+            toWallet.setBalance(
+                    toWallet.getBalance() + request.getAmount()
+            );
 
             walletRepository.save(fromWallet);
             walletRepository.save(toWallet);
 
             txn.setStatus("SUCCESS");
 
+            // Save transaction FIRST
+            transactionService.saveTransaction(txn);
+
+            // Send Kafka event ASYNC
             paymentProducer.sendPayment(
                     new PaymentEvent(
                             request.getFromUser(),
@@ -130,20 +152,22 @@ public class WalletService {
                     )
             );
 
+            log.info(
+                    "Transfer completed in {} ms",
+                    System.currentTimeMillis() - start
+            );
+
             return "Transfer successful";
 
         } catch (Exception ex) {
 
             txn.setStatus("FAILED");
+
             transactionService.saveTransaction(txn);
 
+            log.error("Transfer failed", ex);
+
             throw ex;
-
-        } finally {
-
-            if ("SUCCESS".equals(txn.getStatus())) {
-                transactionService.saveTransaction(txn);
-            }
         }
     }
 
