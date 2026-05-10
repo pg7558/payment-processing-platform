@@ -13,7 +13,7 @@ public class TransactionService {
 
     private final TransactionRepository transactionRepository;
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public void saveTransaction(Transaction txn) {
         transactionRepository.save(txn);
     }
