@@ -380,7 +380,7 @@ Every incoming request is validated before routing to backend services.
 
 ---
 
-# Resume Highlights
+# Highlights
 
 This project demonstrates:
 - Distributed systems engineering
