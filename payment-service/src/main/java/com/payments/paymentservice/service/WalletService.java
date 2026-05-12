@@ -139,7 +139,7 @@ public class WalletService {
             txn.setStatus("SUCCESS");
 
             // Save transaction FIRST
-            transactionService.saveTransaction(txn);
+            transactionService.saveSuccessfulTransaction(txn);
 
             // Send Kafka event ASYNC
             paymentProducer.sendPayment(
@@ -163,7 +163,7 @@ public class WalletService {
 
             txn.setStatus("FAILED");
 
-            transactionService.saveTransaction(txn);
+            transactionService.saveFailedTransaction(txn);
 
             log.error("Transfer failed", ex);
 

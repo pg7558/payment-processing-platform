@@ -14,7 +14,12 @@ public class TransactionService {
     private final TransactionRepository transactionRepository;
 
     @Transactional
-    public void saveTransaction(Transaction txn) {
+    public void saveSuccessfulTransaction(Transaction txn) {
+        transactionRepository.save(txn);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void saveFailedTransaction(Transaction txn){
         transactionRepository.save(txn);
     }
 }
